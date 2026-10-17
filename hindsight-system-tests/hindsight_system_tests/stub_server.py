@@ -217,6 +217,17 @@ def create_stub_app(stubs: Stubs) -> FastAPI:
         body = await request.json()
         validate_systemone(body)
 
+        limit = stubs.rerank.typesafe_standard_max_bytes
+        if (
+            limit is not None
+            and len(await request.body()) > limit
+            and request.headers.get("TypeSafe-Danger-Zone-Long-Context") != "true"
+        ):
+            # A deliberately test-sized byte limit, not a Jev tokenizer oracle.
+            # Match the provider's failure category so recall must handle a real
+            # rejected HTTP request, rather than observing echoed request headers.
+            return JSONResponse(status_code=400, content={"detail": "max_tokens_exceeded"})
+
         answers = {}
         state = body["state"]
         if isinstance(state, dict) and "new_fact" in state:

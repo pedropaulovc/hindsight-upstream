@@ -113,6 +113,7 @@ def _make_config(**overrides) -> HindsightConfig:
             defaults[f.name] = []
         else:
             defaults[f.name] = None
+    defaults["reranker_typesafe_context_mode"] = "standard"
     defaults.update(overrides)
     return HindsightConfig(**defaults)
 
@@ -324,6 +325,11 @@ class TestFactory:
         config = HindsightConfig.from_env()
         assert config.reranker_typesafe_model == "jev-latest"
         assert config.reranker_typesafe_prune_candidates is False
+
+    @pytest.mark.parametrize("mode", ["extended", "LONG", "", None])
+    def test_invalid_context_mode_is_rejected_by_constructor(self, mode):
+        with pytest.raises(ValueError, match="CONTEXT_MODE"):
+            TypeSafeCrossEncoder(api_key="k", context_mode=mode)
 
     @pytest.mark.asyncio
     async def test_base_url_is_honoured(self):

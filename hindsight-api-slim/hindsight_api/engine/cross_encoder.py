@@ -42,6 +42,7 @@ from ..config import (
     DEFAULT_RERANKER_TEI_BATCH_SIZE,
     DEFAULT_RERANKER_TEI_MAX_CONCURRENT,
     DEFAULT_RERANKER_TYPESAFE_BASE_URL,
+    DEFAULT_RERANKER_TYPESAFE_CONTEXT_MODE,
     DEFAULT_RERANKER_TYPESAFE_MAX_CONCURRENT,
     DEFAULT_RERANKER_TYPESAFE_MODEL,
     DEFAULT_RERANKER_TYPESAFE_PRUNE_CANDIDATES,
@@ -49,6 +50,8 @@ from ..config import (
     DEFAULT_RERANKER_ZEROENTROPY_MODEL,
     DEFAULT_ZEROENTROPY_BASE_URL,
     RerankerMemberConfig,
+    TypeSafeContextMode,
+    parse_typesafe_context_mode,
 )
 from .aiohttp_session import LoopLocal, LoopLocalSession, UpstreamHTTPError, per_phase_timeout, raise_for_status
 from .bank_attribution import reranker_bank_attribution_headers
@@ -1146,6 +1149,9 @@ class TypeSafeCrossEncoder(CrossEncoderModel):
     share of one pool, so 0.7 means "the best of these" and not "relevant", and two
     pools are not comparable. Candidates below the cut score exactly 0.0, which is
     how :attr:`prunes_candidates` tells the caller to leave them out.
+
+    ``context_mode="long"`` opts in to TypeSafe's larger context window without
+    changing candidate packing. The default, ``"standard"``, sends no opt-in header.
     """
 
     SYSTEMONE_PATH = "/v1/systemone"
@@ -1165,9 +1171,9 @@ class TypeSafeCrossEncoder(CrossEncoderModel):
     # to ten and it picked five for a question whose answer was a count over seven.
     MIN_KEEP = 0
 
-    # Context window safety limit for Jev /v1/systemone.
-    # Single question context limit is 32k. A defensive safety margin (26k vs 32k)
-    # absorbs cross-tokenizer divergence and JSON envelope formatting overheads.
+    # Packing budget stays fixed in both context modes. The 26k margin below the
+    # standard 32k question limit reduces tokenizer/framing overhead risk; it cannot
+    # cover every cross-tokenizer divergence (notably mixed-script text).
     MAX_QUESTION_TOKENS = 26_000
 
     # Ordered depths for the cut. The model picks the level; these are the
@@ -1197,7 +1203,9 @@ class TypeSafeCrossEncoder(CrossEncoderModel):
         prune_candidates: bool = DEFAULT_RERANKER_TYPESAFE_PRUNE_CANDIDATES,
         shortlist: int | None = None,
         min_keep: int | None = None,
+        context_mode: TypeSafeContextMode = DEFAULT_RERANKER_TYPESAFE_CONTEXT_MODE,
     ):
+        self.context_mode = parse_typesafe_context_mode(context_mode)
         if shortlist is not None:
             self.SHORTLIST = shortlist
         if min_keep is not None:
@@ -1216,9 +1224,12 @@ class TypeSafeCrossEncoder(CrossEncoderModel):
         # it gates are network round trips, well clear of the "short and hot" work
         # _cross_loop warns against guarding this way.
         self._semaphore = CrossLoopSemaphore(max_concurrent or DEFAULT_RERANKER_TYPESAFE_MAX_CONCURRENT)
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        if self.context_mode == "long":
+            headers["TypeSafe-Danger-Zone-Long-Context"] = "true"
         self._session = LoopLocalSession(
             timeout=per_phase_timeout(timeout),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            headers=headers,
         )
 
     @property
@@ -2577,6 +2588,7 @@ def _create_cross_encoder_backend(member: RerankerMemberConfig) -> CrossEncoderM
             timeout=member.typesafe_timeout,
             max_concurrent=member.typesafe_max_concurrent,
             prune_candidates=member.typesafe_prune_candidates,
+            context_mode=member.typesafe_context_mode,
         )
     elif provider == "rrf":
         return RRFPassthroughCrossEncoder()

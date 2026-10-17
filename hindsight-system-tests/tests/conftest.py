@@ -57,13 +57,15 @@ def hindsight_server(stub_server, tmp_path_factory: pytest.TempPathFactory) -> I
 
 
 @pytest.fixture(scope="session")
-def typesafe_server(stub_server, tmp_path_factory: pytest.TempPathFactory) -> Iterator[object]:
+def typesafe_server(stub_server, hindsight_server, tmp_path_factory: pytest.TempPathFactory) -> Iterator[object]:
     """A second server whose reranker and decision model are TypeSafe, pointed at the stub.
 
     The reranker provider is server-level — it is not in `_CONFIGURABLE_FIELDS`, so
     no bank can switch to it — which is why this costs a whole process rather than a
     bank setting. Session-scoped and started lazily, so only the stories that ask
     for it pay for it.
+    The default server dependency supplies the worker for retained banks' queued
+    consolidation, including when this story file is run on its own.
     """
     log_path: Path = tmp_path_factory.mktemp("typesafe-server") / "server.log"
     server = start_hindsight_server(
@@ -290,6 +292,33 @@ async def wif_client(wif_server) -> AsyncIterator[Hindsight]:
 @pytest.fixture
 async def typesafe_client(typesafe_server) -> AsyncIterator[Hindsight]:
     client = Hindsight(base_url=typesafe_server.url)
+    yield client
+    await client.aclose()
+
+
+@pytest.fixture(scope="session")
+def typesafe_long_server(stub_server, tmp_path_factory: pytest.TempPathFactory) -> Iterator[object]:
+    """A separate API process opting into the TypeSafe reranker's larger window."""
+    log_path: Path = tmp_path_factory.mktemp("typesafe-long-server") / "server.log"
+    server = start_hindsight_server(
+        stub_url=stub_server.url,
+        log_path=log_path,
+        extra_env={
+            "HINDSIGHT_API_RERANKER_PROVIDER": "typesafe",
+            "HINDSIGHT_API_RERANKER_TYPESAFE_API_KEY": "stub-key",
+            "HINDSIGHT_API_RERANKER_TYPESAFE_BASE_URL": stub_server.url,
+            "HINDSIGHT_API_RERANKER_TYPESAFE_CONTEXT_MODE": "long",
+            "HINDSIGHT_API_RERANKER_TYPESAFE_PRUNE_CANDIDATES": "true",
+            "HINDSIGHT_API_WORKER_ENABLED": "false",
+        },
+    )
+    yield server
+    server.stop()
+
+
+@pytest.fixture
+async def typesafe_long_client(typesafe_long_server) -> AsyncIterator[Hindsight]:
+    client = Hindsight(base_url=typesafe_long_server.url)
     yield client
     await client.aclose()
 

@@ -463,6 +463,11 @@ class RerankStub:
     #: keep more. Ignored by the Cohere-shaped /rerank endpoint, which has no cut.
     cut_level: int = 0
 
+    #: Optional test-sized TypeSafe request limit in UTF-8 bytes. This is a
+    #: deterministic protocol boundary, not an approximation of Jev's tokenizer.
+    #: None leaves ordinary stories unrestricted; long context lifts the limit.
+    typesafe_standard_max_bytes: int | None = None
+
     #: What a decision model's per-memory question answers, keyed by text the memory
     #: contains. Memories matching none are scored lexically, where ties fall back to
     #: retrieval order, which is not stable enough to pin.
@@ -565,6 +570,7 @@ class Stubs:
         go back to its default or it leaks into whatever runs next."""
         self.llm.reset()
         self.rerank.cut_level = RerankStub.cut_level
+        self.rerank.typesafe_standard_max_bytes = RerankStub.typesafe_standard_max_bytes
         self.rerank.verdicts = {}
         self.rerank.states = []
         self.triage.reset()

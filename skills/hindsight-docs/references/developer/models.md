@@ -1274,6 +1274,12 @@ behaviour and its trade-offs.
 TypeSafe's scores are rank positions within one recall, not relevance scores, so recall
 publishes no `scores.reranker` under it and rejects `min_scores.reranker` with HTTP 400.
 
+For mixed-script text whose local token estimate can undercount TypeSafe's tokenizer,
+`HINDSIGHT_API_RERANKER_TYPESAFE_CONTEXT_MODE=long` opts in to its larger context
+window. The default is `standard`; Hindsight's packing budget stays unchanged.
+Larger contexts can be slower and less accurate. See
+[Configuration](configuration.md#typesafe) for limits and trade-offs.
+
 ### Alibaba Cloud Models
 
 Alibaba Cloud DashScope exposes `qwen3-rerank` via a Cohere-compatible `/reranks` endpoint:
@@ -1337,6 +1343,7 @@ export HINDSIGHT_API_RERANKER_PROVIDER=typesafe
 export HINDSIGHT_API_RERANKER_TYPESAFE_API_KEY=your-api-key
 export HINDSIGHT_API_RERANKER_TYPESAFE_MODEL=jev-latest  # default, can omit
 # export HINDSIGHT_API_RERANKER_TYPESAFE_PRUNE_CANDIDATES=true  # return only the relevant ones
+# export HINDSIGHT_API_RERANKER_TYPESAFE_CONTEXT_MODE=long  # larger provider window; packing unchanged
 
 # Alibaba Cloud DashScope (qwen3-rerank)
 export HINDSIGHT_API_RERANKER_PROVIDER=alibaba
