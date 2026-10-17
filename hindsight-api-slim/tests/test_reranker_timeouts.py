@@ -37,6 +37,7 @@ def _make_config(**overrides) -> HindsightConfig:
             defaults[f.name] = []
         else:
             defaults[f.name] = None
+    defaults["reranker_typesafe_context_mode"] = "standard"
     defaults.update(overrides)
     return HindsightConfig(**defaults)
 

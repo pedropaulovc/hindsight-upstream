@@ -1017,3 +1017,29 @@ def test_worker_reserved_and_legacy_both_set_is_rejected(monkeypatch):
 
     with pytest.raises(ValueError, match="RESERVED_SLOTS"):
         HindsightConfig.from_env()
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("mode", ["extended", "LONG", ""])
+def test_typesafe_context_mode_rejects_invalid_environment_value(monkeypatch, index, mode):
+    from hindsight_api.config import HindsightConfig
+
+    monkeypatch.setenv("HINDSIGHT_API_LLM_PROVIDER", "mock")
+    prefix = "HINDSIGHT_API_RERANKER_" + (f"{index}_" if index else "")
+    monkeypatch.setenv(prefix + "PROVIDER", "typesafe")
+    monkeypatch.setenv(prefix + "TYPESAFE_API_KEY", "k")
+    name = prefix + "TYPESAFE_CONTEXT_MODE"
+    monkeypatch.setenv(name, mode)
+    with pytest.raises(ValueError, match=name):
+        HindsightConfig.from_env()
+
+
+@pytest.mark.parametrize("mode", ["extended", "", None])
+def test_typesafe_context_mode_rejects_invalid_programmatic_value(monkeypatch, mode):
+    from hindsight_api.config import HindsightConfig
+
+    monkeypatch.setenv("HINDSIGHT_API_LLM_PROVIDER", "mock")
+    config = HindsightConfig.from_env()
+    config.reranker_typesafe_context_mode = mode
+    with pytest.raises(ValueError, match="CONTEXT_MODE"):
+        config.validate()

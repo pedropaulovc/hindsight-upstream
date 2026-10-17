@@ -1264,6 +1264,7 @@ ZeroEntropy's `zembed-1` supports Matryoshka dimensions: `2560`, `1280`, `640`, 
 | `HINDSIGHT_API_RERANKER_TYPESAFE_TIMEOUT` | HTTP request timeout for the TypeSafe reranker (seconds). | `60.0` |
 | `HINDSIGHT_API_RERANKER_TYPESAFE_MAX_CONCURRENT` | Maximum in-flight TypeSafe requests. | `24` |
 | `HINDSIGHT_API_RERANKER_TYPESAFE_PRUNE_CANDIDATES` | Ask a second question that cuts the ranked list where relevance ends, returning only the relevant candidates. Shrinks what recall returns — see the note below. | `false` |
+| `HINDSIGHT_API_RERANKER_TYPESAFE_CONTEXT_MODE` | TypeSafe context window: `standard` or opt-in `long`. See [TypeSafe](#typesafe) for limits and trade-offs. | `standard` |
 | `HINDSIGHT_API_RERANKER_ALIBABA_API_KEY` | Alibaba Cloud DashScope API key for reranking | - |
 | `HINDSIGHT_API_RERANKER_ALIBABA_MODEL` | DashScope rerank model | `qwen3-rerank` |
 | `HINDSIGHT_API_RERANKER_ALIBABA_TIMEOUT` | HTTP request timeout for the Alibaba Cloud DashScope reranker (seconds). | `60.0` |
@@ -1427,6 +1428,7 @@ export HINDSIGHT_API_RERANKER_PROVIDER=typesafe
 export HINDSIGHT_API_RERANKER_TYPESAFE_API_KEY=your-api-key
 # export HINDSIGHT_API_RERANKER_TYPESAFE_MODEL=jev-latest              # default
 # export HINDSIGHT_API_RERANKER_TYPESAFE_PRUNE_CANDIDATES=true          # also prune irrelevant candidates
+# export HINDSIGHT_API_RERANKER_TYPESAFE_CONTEXT_MODE=long              # opt in to TypeSafe's larger context window
 
 # Alibaba Cloud DashScope - qwen3-rerank via Cohere-compatible /reranks endpoint
 export HINDSIGHT_API_RERANKER_PROVIDER=alibaba
@@ -1484,6 +1486,23 @@ against 0.87 for one call per candidate, at a thirtieth of the calls.
 A Choice accepts at most 255 options, so a larger pool is ranked in rounds and the
 winners are then ranked against each other. Probabilities are normalised within a
 single call, so rounds cannot simply be concatenated.
+
+**Context mode — `HINDSIGHT_API_RERANKER_TYPESAFE_CONTEXT_MODE=long`.** The default,
+`standard`, preserves TypeSafe's normal 32k-token question limit. `long` sends
+`TypeSafe-Danger-Zone-Long-Context: true`, opting in to the
+[262k-token request and question limits](https://docs.typesafe.ai/models.md).
+TypeSafe warns that larger contexts can be slower and less accurate; its documented
+per-token price is unchanged.
+
+Hindsight keeps its existing 26k-token packing budget, option limits, and pruning
+behavior in both modes. The larger provider window is useful when Hindsight's local
+token estimate undercounts TypeSafe's tokenizer, for example with mixed-script text;
+it does not make Hindsight pack larger groups or retry failed requests. `standard`
+omits the long-context header. Other mode values are configuration errors.
+
+This is a server-level reranker setting, not a per-bank override or a decision-model
+setting. Failover members configure it independently with
+`HINDSIGHT_API_RERANKER_<n>_TYPESAFE_CONTEXT_MODE`.
 
 **Cut — `HINDSIGHT_API_RERANKER_TYPESAFE_PRUNE_CANDIDATES=true`.** A second question, a
 Score over the ranked shortlist, asks how far down the list relevance extends; whatever

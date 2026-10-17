@@ -241,6 +241,7 @@ class TestEveryRemoteRerankerRetries:
                 defaults[f.name] = None
         defaults.update(
             reranker_provider=provider,
+            reranker_typesafe_context_mode="standard",
             reranker_max_retries=7,
             reranker_initial_backoff=0.25,
             reranker_max_backoff=2.0,
