@@ -130,3 +130,53 @@ async def test_a_rank_position_is_not_published_or_floored(typesafe_client, type
         await typesafe_client.arecall(bank_id=typesafe_bank, query=QUERY, min_scores={"reranker": 0.5})
     assert exc.value.status == 400
     assert "min_scores.reranker" in str(exc.value.body)
+
+
+async def test_long_context_recalls_a_fact_beyond_the_standard_provider_boundary(
+    client, bank_id, typesafe_client, typesafe_long_client, llm, stubs
+):
+    """The same retained pool fails at the normal window and is recalled at long.
+
+    The stub's 1,024-byte request limit is intentionally much smaller than Jev's
+    real token window. Each padded fact exceeds it while all three comfortably fit
+    Hindsight's unchanged packing budget, so this tests the consumer consequence
+    of selecting the larger provider window without pretending to model its
+    tokenizer. No request-header echo is used as an oracle.
+    """
+    # Punctuation grows the request without overwhelming the stub's lexical
+    # embedding with a repeated filler word and changing which facts retrieve.
+    padding = " ." * 600
+    memories = [
+        "Alice moved to Berlin in 2021" + padding,
+        "Alice plays the cello professionally" + padding,
+        "Alice went hiking in the Alps last summer" + padding,
+    ]
+    # Extract this document once: the scripted response contains the full pool,
+    # so allowing the padded source to split would duplicate all three facts.
+    await client.acreate_bank(bank_id=bank_id, name="Alice")
+    await client.banks.update_bank_config(bank_id, {"updates": {"retain_chunk_size": 10_000}})
+    llm.on_step("extract_facts").returns(extracted(*(fact(text, who="Alice", entities=["Alice"]) for text in memories)))
+    llm.on_step("consolidate").returns(consolidation())
+    await client.aretain(bank_id=bank_id, content="\n".join(memories))
+    await wait_until_settled(client, bank_id)
+    stubs.rerank.cut_level = 0
+    stubs.rerank.typesafe_standard_max_bytes = 1_024
+
+    # A disarmed control on the same bank: the oversized rank request really
+    # reaches the provider and is refused, rather than bypassing the reranker.
+    with pytest.raises(ApiException) as exc:
+        await typesafe_client.arecall(bank_id=bank_id, query="Where is Alice's Berlin home?")
+    assert exc.value.status == 500
+    assert "max_tokens_exceeded" in str(exc.value.body)
+
+    stubs.rerank.cut_level = WIDEST_CUT
+    everything = await typesafe_long_client.arecall(bank_id=bank_id, query="Where is Alice's Berlin home?")
+    expected = [text + " | Involving: Alice" for text in memories]
+    texts = [result.text for result in everything.results]
+    assert sorted(texts) == sorted(expected), "long context must rank the entire retained pool"
+    assert texts[0] == expected[0], "the Berlin home must rank ahead of the unrelated activities"
+
+    stubs.rerank.cut_level = 0
+    response = await typesafe_long_client.arecall(bank_id=bank_id, query="Where is Alice's Berlin home?")
+
+    assert [result.text for result in response.results] == [expected[0]], "the relevance cut must reach recall"
